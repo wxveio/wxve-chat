@@ -2,10 +2,22 @@ use leptos::{
     component, create_node_ref, create_signal, html, view, For, IntoView, SignalGet,
     SignalSet, SignalUpdate, spawn_local, mount_to_body,
 };
+use pulldown_cmark::{html as md_html, Parser};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+fn markdown_to_html(md: &str) -> String {
+    let parser = Parser::new(md);
+    let mut html_output = String::new();
+    md_html::push_html(&mut html_output, parser);
+    html_output
+}
 
 // ----------------------------------------------------------------------------
 // Types - matches API contract
@@ -36,7 +48,6 @@ struct ChatRequest {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum StreamChunk {
     Text { content: String },
-    #[allow(dead_code)]
     ToolStart { name: String },
     #[allow(dead_code)]
     ToolEnd { name: String },
@@ -140,6 +151,7 @@ fn App() -> impl IntoView {
     let (loading, set_loading) = create_signal(false);
     let (current_response, set_current_response) = create_signal(String::new());
     let (next_id, set_next_id) = create_signal(0usize);
+    let (tool_running, set_tool_running) = create_signal::<Option<String>>(None);
 
     let do_send = move || {
         let msg = input.get();
@@ -195,7 +207,13 @@ fn App() -> impl IntoView {
                     });
                     set_loading.set(false);
                 }
-                _ => {} // Ignore tool_start/tool_end for now
+                StreamChunk::ToolStart { name } => {
+                    set_tool_running.set(Some(name));
+                }
+                StreamChunk::ToolEnd { .. } => {
+                    set_tool_running.set(None);
+                    set_current_response.update(|r| r.push_str("\n\n"));
+                }
             })
             .await;
 
@@ -231,10 +249,14 @@ fn App() -> impl IntoView {
                             Role::User => "user",
                             Role::Assistant => "assistant",
                         };
+                        let content_html = match msg.role {
+                            Role::User => msg.content.clone(),
+                            Role::Assistant => markdown_to_html(&msg.content),
+                        };
                         view! {
                             <div class="message">
                                 <strong>{role_str}": "</strong>
-                                {msg.content}
+                                <span inner_html=content_html></span>
                             </div>
                         }
                     }
@@ -242,11 +264,19 @@ fn App() -> impl IntoView {
 
                 {move || {
                     let response = current_response.get();
-                    if !response.is_empty() {
+                    let tool = tool_running.get();
+                    if !response.is_empty() || tool.is_some() {
+                        let html = markdown_to_html(&response);
                         Some(view! {
                             <div class="message">
                                 <strong>"assistant: "</strong>
-                                {response}
+                                <span inner_html=html></span>
+                                {move || tool_running.get().map(|name| view! {
+                                    <div class="tool-indicator">
+                                        <span class="spinner"></span>
+                                        {format!("Using {name}...")}
+                                    </div>
+                                })}
                             </div>
                         })
                     } else {

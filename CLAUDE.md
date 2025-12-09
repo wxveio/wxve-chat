@@ -38,7 +38,6 @@ cargo clippy --target wasm32-unknown-unknown
 
 ```
 data: {"type": "text", "content": "AMZN"}
-data: {"type": "text", "content": " is"}
 data: {"type": "tool_start", "name": "getSecurityStructures"}
 data: {"type": "tool_end", "name": "getSecurityStructures"}
 data: {"type": "text", "content": " in wave 3..."}
@@ -47,17 +46,26 @@ data: {"type": "done"}
 
 **Chunk types:**
 - `text` - Token from Xve (stream to UI)
-- `tool_start` - Xve is calling a tool (show indicator)
-- `tool_end` - Tool completed
+- `tool_start` - Xve is calling a tool (show spinner with tool name)
+- `tool_end` - Tool completed (hide spinner, insert newline for markdown separation)
 - `done` - Response complete
 - `error` - Something went wrong
 
 ## Architecture
 
-Single-file Leptos app (`src/main.rs`) with three sections:
-1. **Types** - `ChatRequest`, `Message`, `StreamChunk` (serde-tagged enum matching API)
-2. **SSE Client** - `send_message()` async fn using web-sys fetch + ReadableStream
-3. **UI Component** - `App` component with signals for messages, input, loading state
+Single-file Leptos app (`src/main.rs`) with four sections:
+1. **Helpers** - `markdown_to_html()` using pulldown-cmark
+2. **Types** - `Role`, `Message`, `ChatRequest`, `StreamChunk` (serde-tagged enum)
+3. **SSE Client** - `send_message()` async fn using web-sys fetch + ReadableStream
+4. **UI Component** - `App` component with signals for messages, input, loading, tool state, dark mode
+
+**Signals:**
+- `messages` - Conversation history (Vec<Message> with unique IDs for keyed rendering)
+- `current_response` - Streaming assistant response (moved to messages on Done)
+- `tool_running` - Option<String> with tool name when tool is executing
+- `dark_mode` - Theme toggle (applies `.dark` class to body)
+
+**Styling:** CSS variables in `styles/main.css` for theming. Dark mode overrides via `body.dark`.
 
 Compiles to WASM via Trunk. Deployed as static files to S3 + CloudFront.
 
@@ -65,3 +73,4 @@ Compiles to WASM via Trunk. Deployed as static files to S3 + CloudFront.
 
 - Use explicit imports (no `use leptos::*`)
 - Keep everything in `main.rs` until complexity demands otherwise
+- Use `<For>` with keyed items for lists, not `.iter().map().collect()`

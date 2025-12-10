@@ -179,6 +179,9 @@ fn App() -> impl IntoView {
         set_loading.set(true);
         set_current_response.set(String::new());
 
+        // Capture history BEFORE adding user message to avoid duplication
+        let history = messages.get();
+
         // Add user message to history
         let id = next_id.get();
         set_next_id.set(id + 1);
@@ -189,8 +192,6 @@ fn App() -> impl IntoView {
                 content: msg.clone(),
             });
         });
-
-        let history = messages.get();
 
         spawn_local(async move {
             let result = send_message(msg, history, move |chunk| match chunk {

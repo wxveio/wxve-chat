@@ -30,12 +30,20 @@ enum Role {
     Assistant,
 }
 
+#[derive(Clone)]
+struct Chart {
+    symbol: String,
+    html: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Message {
     #[serde(skip)]
     id: usize,
     role: Role,
     content: String,
+    #[serde(skip)]
+    charts: Vec<Chart>,
 }
 
 #[derive(Clone, Serialize)]
@@ -51,6 +59,7 @@ enum StreamChunk {
     ToolStart { name: String },
     #[allow(dead_code)]
     ToolEnd { name: String },
+    Chart { symbol: String, html: String },
     Done,
     Error { message: String },
 }
@@ -152,6 +161,7 @@ fn App() -> impl IntoView {
     let (current_response, set_current_response) = create_signal(String::new());
     let (next_id, set_next_id) = create_signal(0usize);
     let (tool_running, set_tool_running) = create_signal::<Option<String>>(None);
+    let (pending_charts, set_pending_charts) = create_signal(Vec::<Chart>::new());
     let (dark_mode, set_dark_mode) = create_signal(false);
 
     let toggle_dark_mode = move |_| {
@@ -178,6 +188,7 @@ fn App() -> impl IntoView {
         set_input.set(String::new());
         set_loading.set(true);
         set_current_response.set(String::new());
+        set_pending_charts.set(Vec::new());
 
         // Capture history BEFORE adding user message to avoid duplication
         let history = messages.get();
@@ -190,6 +201,7 @@ fn App() -> impl IntoView {
                 id,
                 role: Role::User,
                 content: msg.clone(),
+                charts: Vec::new(),
             });
         });
 
@@ -198,8 +210,14 @@ fn App() -> impl IntoView {
                 StreamChunk::Text { content } => {
                     set_current_response.update(|r| r.push_str(&content));
                 }
+                StreamChunk::Chart { symbol, html } => {
+                    set_pending_charts.update(|charts| {
+                        charts.push(Chart { symbol, html });
+                    });
+                }
                 StreamChunk::Done => {
                     let response = current_response.get();
+                    let charts = pending_charts.get();
                     let id = next_id.get();
                     set_next_id.set(id + 1);
                     set_messages.update(|msgs| {
@@ -207,9 +225,11 @@ fn App() -> impl IntoView {
                             id,
                             role: Role::Assistant,
                             content: response,
+                            charts,
                         });
                     });
                     set_current_response.set(String::new());
+                    set_pending_charts.set(Vec::new());
                     set_loading.set(false);
                 }
                 StreamChunk::Error { message } => {
@@ -220,6 +240,7 @@ fn App() -> impl IntoView {
                             id,
                             role: Role::Assistant,
                             content: format!("Error: {message}"),
+                            charts: Vec::new(),
                         });
                     });
                     set_loading.set(false);
@@ -242,6 +263,7 @@ fn App() -> impl IntoView {
                         id,
                         role: Role::Assistant,
                         content: format!("Error: {e}"),
+                        charts: Vec::new(),
                     });
                 });
                 set_loading.set(false);
@@ -301,9 +323,22 @@ fn App() -> impl IntoView {
                             Role::User => msg.content.clone(),
                             Role::Assistant => markdown_to_html(&msg.content),
                         };
+                        let charts = msg.charts.clone();
                         view! {
                             <div class=class>
                                 <span inner_html=content_html></span>
+                                {charts.into_iter().map(|chart| {
+                                    let title = format!("{} Wave Analysis", chart.symbol);
+                                    view! {
+                                        <div class="chart-container">
+                                            <iframe
+                                                attr:srcdoc=chart.html
+                                                title=title
+                                                sandbox="allow-scripts"
+                                            ></iframe>
+                                        </div>
+                                    }
+                                }).collect::<Vec<_>>()}
                             </div>
                         }
                     }

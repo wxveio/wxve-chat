@@ -334,7 +334,8 @@ fn App() -> impl IntoView {
                                             <iframe
                                                 attr:srcdoc=chart.html
                                                 title=title
-                                                sandbox="allow-scripts"
+                                                sandbox="allow-scripts allow-fullscreen"
+                                                allowfullscreen=true
                                             ></iframe>
                                         </div>
                                     }
